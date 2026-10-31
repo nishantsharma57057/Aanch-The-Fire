@@ -34,12 +34,22 @@ export async function adminAuthRoute(request,env){const path=new URL(request.url
  const[salt,expected]=env.ADMIN_PASSWORD_HASH.split(':');requireThat(typeof body.password==='string'&&body.password.length<=200,'Invalid email or password.',401);const actual=await passwordHash(body.password,salt);let diff=actual.length^expected.length;for(let i=0;i<actual.length;i++)diff|=actual.charCodeAt(i)^expected.charCodeAt(i);requireThat(typeof body.username==='string'&&body.username.trim().toLowerCase()===env.ADMIN_USERNAME.toLowerCase()&&diff===0,'Invalid email or password.',401);
  await env.DB.prepare("UPDATE settings SET value = json_object('attempts',0,'started',?) WHERE `key` = 'admin_login_attempts'").bind(time).run();const value=String(time+sessionSeconds(env))+'.'+hex(crypto.getRandomValues(new Uint8Array(16)));const token=value+'.'+await signLogin(env,value);return response({loggedIn:true,loginToken:token},200,{'Set-Cookie':`aanch_login=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${sessionSeconds(env)}${new URL(request.url).protocol==='https:'?'; Secure':''}`})
  }
+ // Sign-out must also recover expired, invalid and missing login cookies.
+ if(path==='/api/admin-auth/logout'&&request.method==='POST'){
+  const token=cookieToken(request);
+  if(token&&env.DB)await env.DB.prepare('DELETE FROM admin_sessions WHERE token_hash = ?').bind(await sha(token)).run();
+  const result=response({verified:false});
+  const secure=new URL(request.url).protocol==='https:'?'; Secure':'';
+  result.headers.append('Set-Cookie',`aanch_login=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure}`);
+  result.headers.append('Set-Cookie',cookie(request,'',0));
+  return result;
+ }
  requireThat(await isAdminOwner(request,env),'Sign in with the authorised owner account first.',403);
  requireThat(env.DB&&encryptionReady(env),'Admin OTP verification is not configured. Please contact the site owner.',503);
  const owner=await ownerKey(request,env),time=now();const method=request.method;
  if(path==='/api/admin-auth/status'&&method==='GET'){const row=await env.DB.prepare('SELECT enabled FROM admin_mfa WHERE owner_key = ?').bind(owner).first();return response({enabled:row?.enabled===1,verified:await hasAdminSession(request,env),method:'authenticator',sessionMinutes:sessionSeconds(env)/60})}
  requireThat(method==='POST','Method not allowed.',405);
- if(path==='/api/admin-auth/logout'){const token=cookieToken(request);if(token)await env.DB.prepare('DELETE FROM admin_sessions WHERE token_hash = ? AND owner_key = ?').bind(await sha(token),owner).run();return response({verified:false},200,{'Set-Cookie':`aanch_login=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${new URL(request.url).protocol==='https:'?'; Secure':''}`})}
+
  if(path==='/api/admin-auth/setup'){
   let row=await env.DB.prepare('SELECT * FROM admin_mfa WHERE owner_key = ?').bind(owner).first();requireThat(!row?.enabled,'Authenticator is already configured. Enter its current code.',409);
   await env.DB.prepare('INSERT OR IGNORE INTO admin_mfa (owner_key) VALUES (?)').bind(owner).run();
