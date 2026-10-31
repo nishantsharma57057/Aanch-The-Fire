@@ -1,0 +1,1 @@
+See HOSTINGER-SETUP.md. Open /#/admin/login on your domain, sign in using generated credentials, enroll your authenticator and verify the current OTP. Set and confirm the restaurant pin in Delivery settings before accepting delivery orders. Customer records are visible in My bookings / My orders in the same browser session.

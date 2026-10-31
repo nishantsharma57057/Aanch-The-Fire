@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.openai/.state/
+.sites-runtime/
+.wrangler/
+.env*
+.dev.vars*
+
+!.env.example
