@@ -1,3 +1,4 @@
+import {notificationFeed} from './notifications.js';
 import {adminAuthRoute,adminSessionState,hasAdminSession} from './admin-auth.js';
 import {validPoint,distanceKm,eligiblePoint,DELIVERY_RADIUS_KM} from '../shared/delivery.js';
 import {menu,itemId,variantsFor} from '../src/menu.js';
@@ -83,6 +84,10 @@ export async function api(request,env){
  }
  if(path.startsWith('/api/admin/')){
   assert(await hasAdminSession(request,env),'Restaurant management access is required.',403);
+  if(path==='/api/admin/notifications'&&method==='GET'){
+   const feed=await notificationFeed(env.DB,url.searchParams.get('cursor'));
+   assert(!feed.invalid,'Invalid notification cursor.');return json(feed);
+  }
   if(path==='/api/admin/bookings'&&method==='GET'){
    const rows=await env.DB.prepare('SELECT * FROM bookings ORDER BY created_at DESC LIMIT 150').all();const bookings=[];
    for(const row of rows.results){const order=await env.DB.prepare('SELECT * FROM orders WHERE booking_id = ?').bind(row.id).first();bookings.push(publicBooking(row,order));}return json({bookings});

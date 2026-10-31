@@ -6,6 +6,8 @@ const hex=bytes=>Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
 const unhex=value=>Uint8Array.from(value.match(/../g)||[],h=>parseInt(h,16));
 const sha=async value=>hex(new Uint8Array(await crypto.subtle.digest('SHA-256',encoder.encode(value))));
 const now=()=>Math.floor(Date.now()/1000);
+// A restaurant shift; absolute expiry still requires password + OTP again.
+const sessionSeconds=env=>Math.round(Math.min(24,Math.max(0.5,Number(env.ADMIN_SESSION_HOURS)||12))*3600);
 const response=(body,status=200,headers={})=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json;charset=UTF-8','Cache-Control':'private, no-store',...headers}});
 class AuthError extends Error{constructor(message,status=400){super(message);this.status=status}}
 function requireThat(test,message,status=400){if(!test)throw new AuthError(message,status)}
@@ -30,12 +32,12 @@ export async function adminAuthRoute(request,env){const path=new URL(request.url
  await env.DB.prepare("UPDATE settings SET value = json_object('attempts',0,'started',?) WHERE `key` = 'admin_login_attempts' AND json_extract(value,'$.started') <= ?").bind(time,time-900).run();
  const attempt=await env.DB.prepare("UPDATE settings SET value = json_set(value,'$.attempts',json_extract(value,'$.attempts')+1) WHERE `key` = 'admin_login_attempts' AND json_extract(value,'$.attempts') < 5").run();requireThat(attempt.meta.changes===1,'Too many login attempts. Try again after 15 minutes.',429);
  const[salt,expected]=env.ADMIN_PASSWORD_HASH.split(':');requireThat(typeof body.password==='string'&&body.password.length<=200,'Invalid email or password.',401);const actual=await passwordHash(body.password,salt);let diff=actual.length^expected.length;for(let i=0;i<actual.length;i++)diff|=actual.charCodeAt(i)^expected.charCodeAt(i);requireThat(typeof body.username==='string'&&body.username.trim().toLowerCase()===env.ADMIN_USERNAME.toLowerCase()&&diff===0,'Invalid email or password.',401);
- await env.DB.prepare("UPDATE settings SET value = json_object('attempts',0,'started',?) WHERE `key` = 'admin_login_attempts'").bind(time).run();const value=String(time+1800)+'.'+hex(crypto.getRandomValues(new Uint8Array(16)));const token=value+'.'+await signLogin(env,value);return response({loggedIn:true,loginToken:token},200,{'Set-Cookie':`aanch_login=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=1800${new URL(request.url).protocol==='https:'?'; Secure':''}`})
+ await env.DB.prepare("UPDATE settings SET value = json_object('attempts',0,'started',?) WHERE `key` = 'admin_login_attempts'").bind(time).run();const value=String(time+sessionSeconds(env))+'.'+hex(crypto.getRandomValues(new Uint8Array(16)));const token=value+'.'+await signLogin(env,value);return response({loggedIn:true,loginToken:token},200,{'Set-Cookie':`aanch_login=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${sessionSeconds(env)}${new URL(request.url).protocol==='https:'?'; Secure':''}`})
  }
  requireThat(await isAdminOwner(request,env),'Sign in with the authorised owner account first.',403);
  requireThat(env.DB&&encryptionReady(env),'Admin OTP verification is not configured. Please contact the site owner.',503);
  const owner=await ownerKey(request,env),time=now();const method=request.method;
- if(path==='/api/admin-auth/status'&&method==='GET'){const row=await env.DB.prepare('SELECT enabled FROM admin_mfa WHERE owner_key = ?').bind(owner).first();return response({enabled:row?.enabled===1,verified:await hasAdminSession(request,env),method:'authenticator',sessionMinutes:30})}
+ if(path==='/api/admin-auth/status'&&method==='GET'){const row=await env.DB.prepare('SELECT enabled FROM admin_mfa WHERE owner_key = ?').bind(owner).first();return response({enabled:row?.enabled===1,verified:await hasAdminSession(request,env),method:'authenticator',sessionMinutes:sessionSeconds(env)/60})}
  requireThat(method==='POST','Method not allowed.',405);
  if(path==='/api/admin-auth/logout'){const token=cookieToken(request);if(token)await env.DB.prepare('DELETE FROM admin_sessions WHERE token_hash = ? AND owner_key = ?').bind(await sha(token),owner).run();return response({verified:false},200,{'Set-Cookie':`aanch_login=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${new URL(request.url).protocol==='https:'?'; Secure':''}`})}
  if(path==='/api/admin-auth/setup'){
@@ -56,7 +58,7 @@ export async function adminAuthRoute(request,env){const path=new URL(request.url
   requireThat(matched>row.last_counter,'Code is invalid, expired or already used. Wait for a new code and try again.',401);
   const sql=row.enabled?'UPDATE admin_mfa SET last_counter = ?, attempts = 0, window_started = ? WHERE owner_key = ? AND last_counter < ? AND secret = ?':'UPDATE admin_mfa SET secret = pending_secret, pending_secret = NULL, pending_expires = 0, enabled = 1, last_counter = ?, attempts = 0, window_started = ? WHERE owner_key = ? AND last_counter < ? AND pending_secret = ? AND enabled = 0 AND pending_expires > '+time;
   const update=await env.DB.prepare(sql).bind(matched,time,owner,matched,sealed).run();requireThat(update.meta.changes===1,'This code was already used or setup changed. Wait for a new code.',401);
-  await env.DB.prepare('DELETE FROM admin_sessions WHERE expires_at <= ?').bind(time).run();const token=hex(crypto.getRandomValues(new Uint8Array(32)));await env.DB.prepare('INSERT INTO admin_sessions (token_hash,owner_key,expires_at) VALUES (?,?,?)').bind(await sha(token),owner,time+1800).run();return response({verified:true,verificationToken:token,expiresAt:time+1800},200,{'Set-Cookie':cookie(request,token,1800)})
+  await env.DB.prepare('DELETE FROM admin_sessions WHERE expires_at <= ?').bind(time).run();const token=hex(crypto.getRandomValues(new Uint8Array(32)));await env.DB.prepare('INSERT INTO admin_sessions (token_hash,owner_key,expires_at) VALUES (?,?,?)').bind(await sha(token),owner,time+sessionSeconds(env)).run();return response({verified:true,verificationToken:token,expiresAt:time+sessionSeconds(env)},200,{'Set-Cookie':cookie(request,token,sessionSeconds(env))})
  }
  return response({error:'Not found.'},404);
  }catch(error){if(error instanceof AuthError)return response({error:error.message},error.status);console.error('Admin verification failed',error.name);return response({error:'Verification is temporarily unavailable. Please try again.'},503)}}
