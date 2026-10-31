@@ -4,3 +4,23 @@ test('separate admin password login requires OTP, blocks replay, expires and rev
 assert.equal((await send('/admin/bookings')).status,403);assert.equal((await send('/admin-auth/login',{username:env.ADMIN_USERNAME,password:'wrong'})).status,401);const login=await send('/admin-auth/login',{username:env.ADMIN_USERNAME,password:'Test-only-password!'});assert.equal(login.status,200);cookies+='; '+login.headers.get('set-cookie').split(';')[0];assert.equal((await send('/session')).data.ownerAuthorized,true);assert.equal((await send('/admin/bookings')).status,403);const setup=await send('/admin-auth/setup',{});assert.equal(setup.status,200);const code=await totpCode(setup.data.secret,Math.floor(Date.now()/30000));const verified=await send('/admin-auth/verify',{code});assert.equal(verified.status,200);cookies+='; '+verified.headers.get('set-cookie').split(';')[0];assert.equal((await send('/admin/bookings')).status,200);assert.equal((await send('/admin-auth/verify',{code})).status,401);await send('/admin-auth/logout',{});assert.equal((await send('/admin/bookings')).status,403);await DB.prepare('UPDATE admin_mfa SET attempts = 5, window_started = ?').bind(Math.floor(Date.now()/1000)).run();assert.equal((await send('/admin-auth/verify',{code})).status,429);env.ADMIN_PASSWORD_HASH+='x';assert.equal((await send('/admin/bookings')).status,403);
 }finally{DB.close()}});
 test('cookie-blocked browser can progress from password to OTP and dashboard using in-memory tokens',async()=>{const DB=connectDB();try{const salt='ab'.repeat(16),env={DB,ADMIN_USERNAME:'owner@example.test',ADMIN_MFA_KEY:'22'.repeat(32),ADMIN_PASSWORD_HASH:salt+':'+await passwordHash('Test-only-password!',salt)};let headers={};const send=async(path,body)=>{const r=await api(new Request('https://aanch.test/api'+path,{method:body===undefined?'GET':'POST',headers:{...headers,'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)}),env);return{status:r.status,data:await r.json()}};const login=await send('/admin-auth/login',{username:env.ADMIN_USERNAME,password:'Test-only-password!'});assert.equal(login.status,200);headers['x-aanch-login']=login.data.loginToken;assert.equal((await send('/session')).data.ownerAuthorized,true);assert.equal((await send('/admin/bookings')).status,401);const setup=await send('/admin-auth/setup',{});assert.equal(setup.status,200);const verified=await send('/admin-auth/verify',{code:await totpCode(setup.data.secret,Math.floor(Date.now()/30000))});assert.equal(verified.status,200);headers['x-aanch-admin']=verified.data.verificationToken;assert.equal((await send('/session')).data.admin,true);assert.equal((await send('/admin/bookings')).status,200);await send('/admin-auth/logout',{});assert.equal((await send('/admin/bookings')).status,401)}finally{DB.close()}});
+
+test('logout clears both cookies even when owner login is expired or invalid',async()=>{
+ const DB=connectDB();try{
+  const env={DB,ADMIN_USERNAME:'owner@example.test',ADMIN_MFA_KEY:'22'.repeat(32),ADMIN_PASSWORD_HASH:'ab'.repeat(16)+':'+'cd'.repeat(32)};
+  const token='a'.repeat(64),tokenHash=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token))).toString('hex');
+  await DB.prepare('INSERT INTO admin_mfa (owner_key) VALUES (?)').bind('owner-key').run();
+  await DB.prepare('INSERT INTO admin_sessions (token_hash,owner_key,expires_at) VALUES (?,?,?)').bind(tokenHash,'owner-key',Math.floor(Date.now()/1000)+3600).run();
+  const expired='1.'+'a'.repeat(32)+'.'+'b'.repeat(64);
+  const request=path=>new Request('https://aanch.test/api'+path,{method:'POST',headers:{'content-type':'application/json',cookie:`aanch_login=${expired}; aanch_admin=${token}`},body:'{}'});
+  const status=await api(new Request('https://aanch.test/api/admin-auth/status',{headers:{cookie:`aanch_login=${expired}`}}),env);
+  assert.equal(status.status,403);
+  for(let retry=0;retry<2;retry++){
+   const response=await api(request('/admin-auth/logout'),env);assert.equal(response.status,200);
+   const cookies=response.headers.getSetCookie();assert.equal(cookies.length,2);
+   for(const name of ['aanch_login','aanch_admin'])assert.ok(cookies.some(c=>c.startsWith(name+'=;')&&c.includes('Max-Age=0')&&c.includes('HttpOnly')&&c.includes('Secure')));
+  }
+  assert.equal(await DB.prepare('SELECT token_hash FROM admin_sessions WHERE token_hash = ?').bind(tokenHash).first(),null);
+  assert.equal((await api(new Request('https://aanch.test/api/admin-auth/logout',{method:'POST',headers:{origin:'https://attacker.test','content-type':'application/json'},body:'{}'}),env)).status,403);
+ }finally{DB.close();}
+});
