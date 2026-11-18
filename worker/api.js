@@ -41,6 +41,34 @@ export async function api(request,env){
  const authResponse=await adminAuthRoute(request,env);if(authResponse)return authResponse;
  const owner=await ownerFor(request);assert(owner||(path.startsWith('/api/admin/')&&await hasAdminSession(request,env)),'Please reload the page to start your booking session.',401);
 
+ // Razorpay Standard Checkout. Amount is always recalculated from the server-side menu.
+ if(path==='/api/create-order'&&method==='POST'){
+  assert(env.RAZORPAY_KEY_ID&&env.RAZORPAY_KEY_SECRET,'Online payments are not configured.',503);
+  const body=await readBody(request);const checked=validateItems(body.items);
+  const amount=Math.round(checked.subtotal*100);assert(Number.isSafeInteger(amount)&&amount>=100,'Minimum payment amount is ₹1.00.');
+  const receipt='aanch_'+random().slice(0,24);
+  let gateway;
+  try{
+   const response=await fetch('https://api.razorpay.com/v1/orders',{method:'POST',headers:{'Authorization':'Basic '+btoa(env.RAZORPAY_KEY_ID+':'+env.RAZORPAY_KEY_SECRET),'Content-Type':'application/json'},body:JSON.stringify({amount,currency:'INR',receipt})});
+   if(response.status===401)return json({error:'Razorpay authentication failed. Check the server credentials.'},401);
+   gateway=await response.json();
+   if(!response.ok||!gateway.id)throw new Error('Razorpay order creation failed');
+  }catch(error){console.error('Razorpay order creation failed:',error.name);return json({error:'Unable to start payment. Please try again.'},500)}
+  return json({order_id:gateway.id,amount:gateway.amount,currency:gateway.currency,key_id:env.RAZORPAY_KEY_ID});
+ }
+ if(path==='/api/verify-payment'&&method==='POST'){
+  assert(env.RAZORPAY_KEY_SECRET,'Online payments are not configured.',503);
+  const body=await readBody(request);
+  const orderId=clean(body.razorpay_order_id,100),paymentId=clean(body.razorpay_payment_id,100),signature=clean(body.razorpay_signature,128);
+  assert(orderId&&paymentId&&/^[a-f0-9]{64}$/i.test(signature),'Missing or invalid payment verification fields.');
+  const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(env.RAZORPAY_KEY_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  const digest=new Uint8Array(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(orderId+'|'+paymentId)));
+  const expected=Array.from(digest,b=>b.toString(16).padStart(2,'0')).join('');
+  let mismatch=0;for(let i=0;i<64;i++)mismatch|=expected.charCodeAt(i)^signature.toLowerCase().charCodeAt(i);
+  assert(mismatch===0,'Payment signature verification failed.',400);
+  return json({verified:true,razorpay_order_id:orderId,razorpay_payment_id:paymentId});
+ }
+
 
  if(path==='/api/delivery-settings'&&method==='GET'){
   const row=await env.DB.prepare("SELECT value FROM settings WHERE `key` = 'restaurant_location'").first();return json({restaurant:row?JSON.parse(row.value):null,radiusKm:DELIVERY_RADIUS_KM});
