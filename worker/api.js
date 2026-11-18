@@ -27,6 +27,23 @@ export function validateItems(raw){
  assert(count<=200,'For larger food orders, please call the restaurant.');return {items,subtotal:items.reduce((sum,i)=>sum+i.price*i.quantity,0)};
 }
 const keyValid=k=>typeof k==='string'&&/^[a-zA-Z0-9_-]{16,80}$/.test(k);
+async function verifyRazorpayPayment(env,body,expectedAmount){
+ assert(env.RAZORPAY_KEY_ID&&env.RAZORPAY_KEY_SECRET,'Online payments are not configured.',503);
+ const orderId=clean(body?.razorpay_order_id,100),paymentId=clean(body?.razorpay_payment_id,100),signature=clean(body?.razorpay_signature,128);
+ assert(orderId&&paymentId&&/^[a-f0-9]{64}$/i.test(signature),'Missing or invalid payment verification fields.');
+ const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(env.RAZORPAY_KEY_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+ const digest=new Uint8Array(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(orderId+'|'+paymentId)));
+ const expected=Array.from(digest,b=>b.toString(16).padStart(2,'0')).join('');
+ let mismatch=0;for(let i=0;i<64;i++)mismatch|=expected.charCodeAt(i)^signature.toLowerCase().charCodeAt(i);
+ assert(mismatch===0,'Payment signature verification failed.',400);
+ const auth='Basic '+btoa(env.RAZORPAY_KEY_ID+':'+env.RAZORPAY_KEY_SECRET);
+ const response=await fetch('https://api.razorpay.com/v1/payments/'+encodeURIComponent(paymentId),{headers:{Authorization:auth}});
+ const payment=await response.json();
+ assert(response.ok&&payment.id===paymentId,'Could not confirm payment with Razorpay.',400);
+ assert(payment.order_id===orderId&&payment.currency==='INR'&&payment.status==='captured','Payment is not captured for this order.',400);
+ if(expectedAmount!==undefined)assert(payment.amount===Math.round(expectedAmount*100),'Paid amount does not match the order total.',400);
+ return {orderId,paymentId,amount:payment.amount,currency:payment.currency};
+}
 async function readBody(request){assert((request.headers.get('content-type')||'').includes('application/json'),'JSON request required.',415);const text=await request.text();assert(text.length<=24000,'Request is too large.',413);try{const parsed=JSON.parse(text);assert(parsed&&typeof parsed==='object'&&!Array.isArray(parsed),'Invalid request body.');return parsed}catch{throw new InputError('Invalid request body.')}}
 async function ownerFor(request){const platformId=request.headers.get('oai-authenticated-user-id');if(platformId)return 'user:'+await hash(platformId);const match=(request.headers.get('cookie')||'').match(/(?:^|;\s*)aanch_session=([a-f0-9]{64})(?:;|$)/);return match?'guest:'+await hash(match[1]):null;}
 function publicBooking(row,order){return {id:row.id,reference:row.reference,...JSON.parse(row.details),status:row.status,createdAt:row.created_at,order:order?{id:order.id,items:JSON.parse(order.items),subtotal:order.subtotal,notes:order.notes,status:order.status,createdAt:order.created_at}:null}}
@@ -92,7 +109,7 @@ export async function api(request,env){
    d.deliveryPin={lat:body.deliveryPin.lat,lng:body.deliveryPin.lng};d.restaurantPin=restaurant;d.distanceKm=Math.round(distanceKm(restaurant,d.deliveryPin)*1000)/1000;
 }else{d.address='';d.pincode='';d.landmark='';}
   assert(body.agreed===true,'Please accept restaurant confirmation of availability and final charges.');
-  const checked=validateItems(body.items);const recent=await env.DB.prepare('SELECT COUNT(*) AS count FROM food_orders WHERE owner = ? AND created_at > ?').bind(owner,new Date(Date.now()-3600000).toISOString()).first();assert(recent.count<15,'Too many requests. Please contact the restaurant.',429);
+  const checked=validateItems(body.items);const paid=await verifyRazorpayPayment(env,body.payment,checked.subtotal);d.payment='paid_online';d.razorpayOrderId=paid.orderId;d.razorpayPaymentId=paid.paymentId;const recent=await env.DB.prepare('SELECT COUNT(*) AS count FROM food_orders WHERE owner = ? AND created_at > ?').bind(owner,new Date(Date.now()-3600000).toISOString()).first();assert(recent.count<15,'Too many requests. Please contact the restaurant.',429);
   const id=random(),now=new Date().toISOString();await env.DB.prepare("INSERT OR IGNORE INTO food_orders (id,reference,owner,request_key,details,items,subtotal,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'requested',?,?)").bind(id,'FOOD-'+id.slice(0,12).toUpperCase(),owner,body.requestKey,JSON.stringify(d),JSON.stringify(checked.items),checked.subtotal,now,now).run();
   const row=await env.DB.prepare('SELECT * FROM food_orders WHERE owner = ? AND request_key = ?').bind(owner,body.requestKey).first();return json({order:foodPublic(row)},201);
  }
