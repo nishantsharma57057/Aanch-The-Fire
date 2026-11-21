@@ -35,10 +35,6 @@ async function start() {
     throw new Error('Invalid ADMIN_MFA_KEY');
   }
 
-  if (!/^[a-f0-9]{32}:[a-f0-9]{64}$/i.test(env.ADMIN_PASSWORD_HASH)) {
-    throw new Error('Invalid ADMIN_PASSWORD_HASH');
-  }
-
   if (
     env.NODE_ENV === 'production' &&
     !env.APP_URL.startsWith('https://')
