@@ -24,3 +24,31 @@ test('logout clears both cookies even when owner login is expired or invalid',as
   assert.equal((await api(new Request('https://aanch.test/api/admin-auth/logout',{method:'POST',headers:{origin:'https://attacker.test','content-type':'application/json'},body:'{}'}),env)).status,403);
  }finally{DB.close();}
 });
+
+
+test('two configured admin accounts have separate MFA and can reset passwords through Resend',async()=>{
+ const DB=connectDB();const originalFetch=globalThis.fetch;
+ try{
+  const firstSalt='11'.repeat(16),secondSalt='22'.repeat(16);
+  const firstPassword='First-temporary-password-123!',secondPassword='Second-temporary-password-456!';
+  const env={DB,ADMIN_MFA_KEY:'33'.repeat(32),APP_URL:'https://aanch.test',RESEND_API_KEY:'re_test_only',MAIL_FROM:'Aanch The Fire <no-reply@aanchthefire.com>',ADMIN_ACCOUNTS:JSON.stringify([
+   {email:'nishantsharma59059@gmail.com',passwordHash:firstSalt+':'+await passwordHash(firstPassword,firstSalt)},
+   {email:'aanchthefire@gmail.com',passwordHash:secondSalt+':'+await passwordHash(secondPassword,secondSalt)}
+  ])};
+  let emailPayload=null;
+  globalThis.fetch=async(url,options)=>{assert.equal(url,'https://api.resend.com/emails');emailPayload=JSON.parse(options.body);return new Response(JSON.stringify({id:'test-email'}),{status:200,headers:{'content-type':'application/json'}})};
+  let headers={cookie:'aanch_session='+'a'.repeat(64)};
+  const send=async(path,body)=>{const r=await api(new Request('https://aanch.test/api'+path,{method:body===undefined?'GET':'POST',headers:{...headers,'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)}),env);return{status:r.status,data:await r.json()}};
+  const first=await send('/admin-auth/login',{username:'nishantsharma59059@gmail.com',password:firstPassword});assert.equal(first.status,200);headers['x-aanch-login']=first.data.loginToken;
+  assert.equal((await send('/session')).data.adminEmail,'nishantsharma59059@gmail.com');
+  const firstSetup=await send('/admin-auth/setup',{});assert.equal(firstSetup.status,200);
+  const second=await send('/admin-auth/login',{username:'aanchthefire@gmail.com',password:secondPassword});assert.equal(second.status,200);headers['x-aanch-login']=second.data.loginToken;
+  assert.equal((await send('/session')).data.adminEmail,'aanchthefire@gmail.com');
+  const secondSetup=await send('/admin-auth/setup',{});assert.equal(secondSetup.status,200);assert.notEqual(firstSetup.data.secret,secondSetup.data.secret);
+  const forgot=await send('/admin-auth/forgot-password',{email:'nishantsharma59059@gmail.com'});assert.equal(forgot.status,200);assert.match(emailPayload.to[0],/nishantsharma59059@gmail.com/);
+  const href=emailPayload.html.match(/href="([^"]+)"/)[1];const resetUrl=new URL(href);const params=new URLSearchParams(resetUrl.hash.split('?')[1]);const token=params.get('resetToken');assert.match(token,/^[a-f0-9]{64}$/);
+  const reset=await send('/admin-auth/reset-password',{email:'nishantsharma59059@gmail.com',token,password:'New-secure-password-789!'});assert.equal(reset.status,200);
+  const oldLogin=await send('/admin-auth/login',{username:'nishantsharma59059@gmail.com',password:firstPassword});assert.equal(oldLogin.status,401);
+  const newLogin=await send('/admin-auth/login',{username:'nishantsharma59059@gmail.com',password:'New-secure-password-789!'});assert.equal(newLogin.status,200);
+ }finally{globalThis.fetch=originalFetch;DB.close()}
+});
