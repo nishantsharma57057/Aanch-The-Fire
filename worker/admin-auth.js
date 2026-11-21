@@ -10,7 +10,7 @@ const response=(body,status=200,headers={})=>new Response(JSON.stringify(body),{
 class AuthError extends Error{constructor(message,status=400){super(message);this.status=status}}
 function requireThat(test,message,status=400){if(!test)throw new AuthError(message,status)}
 const encryptionReady=env=>/^[a-f0-9]{64}$/i.test(env.ADMIN_MFA_KEY||'');
-const cookieToken=request=>request.headers.get('x-aanch-admin')||(request.headers.get('cookie')||'').match(/(?:^|;\\s*)aanch_admin=([a-f0-9]{64})(?:;|$)/)?.[1];
+const cookieToken=request=>request.headers.get('x-aanch-admin')||(request.headers.get('cookie')||'').match(/(?:^|;\s*)aanch_admin=([a-f0-9]{64})(?:;|$)/)?.[1];
 function cookie(request,value,maxAge){return `aanch_admin=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${new URL(request.url).protocol==='https:'?'; Secure':''}`}
 function loginCookie(request,value,maxAge){return `aanch_login=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${new URL(request.url).protocol==='https:'?'; Secure':''}`}
 function parseAccounts(env){
@@ -18,7 +18,7 @@ function parseAccounts(env){
  if(env.ADMIN_ACCOUNTS){try{const parsed=JSON.parse(env.ADMIN_ACCOUNTS);entries=Array.isArray(parsed)?parsed:Object.entries(parsed).map(([email,passwordHash])=>({email,passwordHash}))}catch{throw new AuthError('ADMIN_ACCOUNTS must be valid JSON.',503)}}
  else if(env.ADMIN_USERNAME&&env.ADMIN_PASSWORD_HASH)entries=[{email:env.ADMIN_USERNAME,passwordHash:env.ADMIN_PASSWORD_HASH}];
  const unique=new Map();
- for(const item of entries){const email=String(item?.email||'').trim().toLowerCase(),passwordHash=String(item?.passwordHash||'');if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)||!/^[a-f0-9]{32}:[a-f0-9]{64}$/i.test(passwordHash))throw new AuthError('Invalid admin account configuration.',503);unique.set(email,passwordHash)}
+ for(const item of entries){const email=String(item?.email||'').trim().toLowerCase(),passwordHash=String(item?.passwordHash||'');if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!/^[a-f0-9]{32}:[a-f0-9]{64}$/i.test(passwordHash))throw new AuthError('Invalid admin account configuration.',503);unique.set(email,passwordHash)}
  return [...unique].map(([email,passwordHash])=>({email,passwordHash}));
 }
 async function seedAccounts(env){
@@ -27,10 +27,10 @@ async function seedAccounts(env){
  return accounts;
 }
 async function accountFor(request,env){
- const token=request.headers.get('x-aanch-login')||(request.headers.get('cookie')||'').match(/(?:^|;\\s*)aanch_login=([A-Za-z0-9_-]+\\.\\d+\\.[a-f0-9]+\\.[a-f0-9]{64})(?:;|$)/)?.[1];
+ const token=request.headers.get('x-aanch-login')||(request.headers.get('cookie')||'').match(/(?:^|;\s*)aanch_login=([A-Za-z0-9_-]+\.\d+\.[a-f0-9]+\.[a-f0-9]{64})(?:;|$)/)?.[1];
  if(!token)return null;
  const [encoded,expires,nonce,signature]=token.split('.');
- if(!encoded||!/^\\d+$/.test(expires)||Number(expires)<=now()||!nonce||!/^[a-f0-9]{64}$/i.test(signature||''))return null;
+ if(!encoded||!/^\d+$/.test(expires)||Number(expires)<=now()||!nonce||!/^[a-f0-9]{64}$/i.test(signature||''))return null;
  let email;try{email=atob(encoded.replace(/-/g,'+').replace(/_/g,'/'))}catch{return null}
  email=email.toLowerCase();const row=await env.DB.prepare('SELECT email FROM admin_credentials WHERE email = ?').bind(email).first();if(!row)return null;
  const key=await crypto.subtle.importKey('raw',unhex(env.ADMIN_MFA_KEY),{name:'HMAC',hash:'SHA-256'},false,['sign']);
@@ -77,7 +77,7 @@ export async function adminAuthRoute(request,env){
   let diff=actual.length^expected.length;for(let i=0;i<actual.length;i++)diff|=actual.charCodeAt(i)^expected.charCodeAt(i);
   requireThat(row&&password.length>0&&password.length<=200&&diff===0,'Invalid email or password.',401);
   await env.DB.prepare('UPDATE admin_credentials SET attempts = 0, window_started = ? WHERE email = ?').bind(time,email).run();
-  const expiry=String(time+sessionSeconds(env)),nonce=hex(crypto.getRandomValues(new Uint8Array(16))),encoded=btoa(email).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
+  const expiry=String(time+sessionSeconds(env)),nonce=hex(crypto.getRandomValues(new Uint8Array(16))),encoded=btoa(email).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
   const value=encoded+'.'+expiry+'.'+nonce;const key=await crypto.subtle.importKey('raw',unhex(env.ADMIN_MFA_KEY),{name:'HMAC',hash:'SHA-256'},false,['sign']);
   const signature=hex(new Uint8Array(await crypto.subtle.sign('HMAC',key,encoder.encode(email+'|'+expiry+'.'+nonce))));
   const token=value+'.'+signature;
@@ -85,7 +85,7 @@ export async function adminAuthRoute(request,env){
  }
  if(path==='/api/admin-auth/forgot-password'&&request.method==='POST'){
   const body=await request.json().catch(()=>({}));const email=String(body.email||'').trim().toLowerCase();
-  if(/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)){
+  if(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
    const row=await env.DB.prepare('SELECT email FROM admin_credentials WHERE email = ?').bind(email).first();
    if(row){const token=hex(crypto.getRandomValues(new Uint8Array(32)));await env.DB.prepare('UPDATE admin_credentials SET reset_token_hash = ?, reset_expires = ? WHERE email = ?').bind(await sha(token),now()+900,email).run();try{await sendResetEmail(env,email,token)}catch(error){await env.DB.prepare('UPDATE admin_credentials SET reset_token_hash = NULL, reset_expires = 0 WHERE email = ?').bind(email).run();throw error}}
   }
@@ -93,7 +93,7 @@ export async function adminAuthRoute(request,env){
  }
  if(path==='/api/admin-auth/reset-password'&&request.method==='POST'){
   const body=await request.json().catch(()=>({}));const email=String(body.email||'').trim().toLowerCase(),token=String(body.token||''),password=String(body.password||'');
-  requireThat(/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)&&/^[a-f0-9]{64}$/i.test(token),'Invalid or expired reset link.',400);
+  requireThat(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)&&/^[a-f0-9]{64}$/i.test(token),'Invalid or expired reset link.',400);
   requireThat(password.length>=12&&password.length<=200,'Choose a password with at least 12 characters.',400);
   const row=await env.DB.prepare('SELECT reset_token_hash,reset_expires FROM admin_credentials WHERE email = ?').bind(email).first();
   requireThat(row&&row.reset_expires>now()&&row.reset_token_hash&&await sha(token)===row.reset_token_hash,'Invalid or expired reset link.',400);
@@ -118,7 +118,7 @@ export async function adminAuthRoute(request,env){
   return response({secret,uri,expiresAt:row.pending_expires},200,{'Set-Cookie':cookie(request,'',0)});
  }
  if(path==='/api/admin-auth/verify'){
-  const body=await request.json().catch(()=>({}));requireThat(typeof body?.code==='string'&&/^\\d{6}$/.test(body.code),'Enter the 6-digit code from your authenticator.');
+  const body=await request.json().catch(()=>({}));requireThat(typeof body?.code==='string'&&/^\d{6}$/.test(body.code),'Enter the 6-digit code from your authenticator.');
   let row=await env.DB.prepare('SELECT * FROM admin_mfa WHERE owner_key = ?').bind(owner).first();requireThat(row&&(row.enabled||(row.pending_secret&&row.pending_expires>time)),'Set up your authenticator first. The setup may have expired.',409);
   if(row.window_started<=time-900)await env.DB.prepare('UPDATE admin_mfa SET attempts = 0, window_started = ? WHERE owner_key = ? AND window_started <= ?').bind(time,owner,time-900).run();
   const reserve=await env.DB.prepare('UPDATE admin_mfa SET attempts = attempts + 1 WHERE owner_key = ? AND attempts < 5').bind(owner).run();requireThat(reserve.meta.changes===1,'Too many verification attempts. Try again after 15 minutes.',429);
