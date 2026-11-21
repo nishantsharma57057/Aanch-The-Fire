@@ -15,3 +15,6 @@ export const adminMfa=sqliteTable('admin_mfa',{
 export const adminSessions=sqliteTable('admin_sessions',{
  tokenHash:text('token_hash').primaryKey(),ownerKey:text('owner_key').notNull().references(()=>adminMfa.ownerKey),expiresAt:integer('expires_at').notNull()
 });
+export const adminCredentials=sqliteTable('admin_credentials',{
+ email:text('email').primaryKey(),passwordHash:text('password_hash').notNull(),resetTokenHash:text('reset_token_hash'),resetExpires:integer('reset_expires').notNull().default(0),attempts:integer('attempts').notNull().default(0),windowStarted:integer('window_started').notNull().default(0)
+});
