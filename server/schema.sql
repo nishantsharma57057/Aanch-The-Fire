@@ -34,3 +34,11 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
  expires_at BIGINT NOT NULL, KEY session_expiry(expires_at),
  FOREIGN KEY (owner_key) REFERENCES admin_mfa(owner_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE IF NOT EXISTS admin_credentials (
+ email VARCHAR(254) PRIMARY KEY,
+ password_hash VARCHAR(100) NOT NULL,
+ reset_token_hash VARCHAR(64) NULL,
+ reset_expires BIGINT NOT NULL DEFAULT 0,
+ attempts INT NOT NULL DEFAULT 0,
+ window_started BIGINT NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
