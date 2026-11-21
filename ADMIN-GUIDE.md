@@ -1,4 +1,4 @@
-See HOSTINGER-SETUP.md. Open /#/admin/login on your domain, sign in using generated credentials, enroll your authenticator and verify the current OTP. Set and confirm the restaurant pin in Delivery settings before accepting delivery orders. Customer records are visible in My bookings / My orders in the same browser session.
+See HOSTINGER-SETUP.md. Generate `ADMIN_ACCOUNTS` with `node scripts/create-admin-accounts.mjs`, add it to Hostinger, and deploy. Open /#/admin/login and use Forgot Password separately for `nishantsharma59059@gmail.com` and `aanchthefire@gmail.com`. Each admin then enrolls their own authenticator and verifies the current OTP. Set and confirm the restaurant pin in Delivery settings before accepting delivery orders. Customer records are visible in My bookings / My orders in the same browser session.
 
 ## Live restaurant alerts
 
@@ -16,4 +16,4 @@ These are in-site alerts, with optional desktop notifications while the site is 
 
 ## Deploying this update
 
-Use the updated source in Hostinger's connected deployment branch, run `npm ci` and `npm run build`, then restart with `npm start` (or use Hostinger's redeploy action). No new database tables, credentials, external notification service or API keys are required. Test with a separate customer browser after enabling sound in the admin browser.
+Use the updated source in Hostinger's connected deployment branch, run `npm ci` and `npm run build`, then restart with `npm start` (or use Hostinger's redeploy action). The server creates the admin credentials/reset-token table automatically on startup. Configure `ADMIN_ACCOUNTS`, `ADMIN_MFA_KEY`, `RESEND_API_KEY` and `MAIL_FROM` in Hostinger. Existing booking, order, MFA and session tables are retained. Test with a separate customer browser after enabling sound in the admin browser.
