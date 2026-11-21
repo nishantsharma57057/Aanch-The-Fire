@@ -23,7 +23,7 @@ function parseAccounts(env){
 }
 async function seedAccounts(env){
  const accounts=parseAccounts(env);requireThat(accounts.length>0,'Admin accounts are not configured.',503);
- for(const account of accounts){const exists=await env.DB.prepare('SELECT email FROM admin_credentials WHERE email = ?').bind(account.email).first();if(!exists)await env.DB.prepare('INSERT INTO admin_credentials (email,password_hash,reset_token_hash,reset_expires,attempts,window_started) VALUES (?,?,NULL,0,0,0)').bind(account.email,account.passwordHash).run()}
+ for(const account of accounts){const exists=await env.DB.prepare('SELECT email FROM admin_credentials WHERE email = ?').bind(account.email).first();if(!exists)await env.DB.prepare('INSERT OR IGNORE INTO admin_credentials (email,password_hash,reset_token_hash,reset_expires,attempts,window_started) VALUES (?,?,NULL,0,0,0)').bind(account.email,account.passwordHash).run()}
  return accounts;
 }
 async function accountFor(request,env){
