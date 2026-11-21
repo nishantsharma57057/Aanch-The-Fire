@@ -86,8 +86,8 @@ export async function adminAuthRoute(request,env){
  if(path==='/api/admin-auth/forgot-password'&&request.method==='POST'){
   const body=await request.json().catch(()=>({}));const email=String(body.email||'').trim().toLowerCase();
   if(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
-   const row=await env.DB.prepare('SELECT email FROM admin_credentials WHERE email = ?').bind(email).first();
-   if(row){const token=hex(crypto.getRandomValues(new Uint8Array(32)));await env.DB.prepare('UPDATE admin_credentials SET reset_token_hash = ?, reset_expires = ? WHERE email = ?').bind(await sha(token),now()+900,email).run();try{await sendResetEmail(env,email,token)}catch(error){await env.DB.prepare('UPDATE admin_credentials SET reset_token_hash = NULL, reset_expires = 0 WHERE email = ?').bind(email).run();throw error}}
+   const row=await env.DB.prepare('SELECT email,reset_token_hash,reset_expires FROM admin_credentials WHERE email = ?').bind(email).first();
+   if(row&&(!row.reset_token_hash||row.reset_expires<=now())){const token=hex(crypto.getRandomValues(new Uint8Array(32)));await env.DB.prepare('UPDATE admin_credentials SET reset_token_hash = ?, reset_expires = ? WHERE email = ?').bind(await sha(token),now()+900,email).run();try{await sendResetEmail(env,email,token)}catch(error){await env.DB.prepare('UPDATE admin_credentials SET reset_token_hash = NULL, reset_expires = 0 WHERE email = ?').bind(email).run();throw error}}
   }
   return response({message:'If this email belongs to an admin account, a password reset link has been sent.'});
  }
