@@ -10,14 +10,24 @@ async function start() {
 
   const env = { ...process.env };
 
-  for (const key of [
-    'APP_URL',
-    'ADMIN_USERNAME',
-    'ADMIN_PASSWORD_HASH',
-    'ADMIN_MFA_KEY'
-  ]) {
+  for (const key of ['APP_URL', 'ADMIN_MFA_KEY']) {
     if (!env[key]) {
       throw new Error(`${key} is required`);
+    }
+  }
+
+  if (!env.ADMIN_ACCOUNTS && (!env.ADMIN_USERNAME || !env.ADMIN_PASSWORD_HASH)) {
+    throw new Error('ADMIN_ACCOUNTS (or legacy ADMIN_USERNAME and ADMIN_PASSWORD_HASH) is required');
+  }
+
+  if (env.ADMIN_ACCOUNTS) {
+    let accounts;
+    try { accounts = JSON.parse(env.ADMIN_ACCOUNTS); } catch { throw new Error('ADMIN_ACCOUNTS must be valid JSON'); }
+    if (!Array.isArray(accounts) || accounts.length < 2 ||
+        !accounts.some(a => a.email?.toLowerCase() === 'nishantsharma59059@gmail.com') ||
+        !accounts.some(a => a.email?.toLowerCase() === 'aanchthefire@gmail.com') ||
+        accounts.some(a => !/^[a-f0-9]{32}:[a-f0-9]{64}$/i.test(a.passwordHash || ''))) {
+      throw new Error('ADMIN_ACCOUNTS must contain both configured admin emails and valid password hashes');
     }
   }
 
