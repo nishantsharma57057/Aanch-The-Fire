@@ -98,8 +98,10 @@ export async function adminAuthRoute(request,env){
   const row=await env.DB.prepare('SELECT reset_token_hash,reset_expires FROM admin_credentials WHERE email = ?').bind(email).first();
   requireThat(row&&row.reset_expires>now()&&row.reset_token_hash&&await sha(token)===row.reset_token_hash,'Invalid or expired reset link.',400);
   const salt=hex(crypto.getRandomValues(new Uint8Array(16))),digest=await passwordHash(password,salt);
-  await env.DB.prepare('UPDATE admin_credentials SET password_hash = ?, reset_token_hash = NULL, reset_expires = 0, attempts = 0, window_started = ? WHERE email = ?').bind(salt+':'+digest,now(),email).run();
-  const owner=await ownerKey(email);await env.DB.prepare('DELETE FROM admin_sessions WHERE owner_key = ?').bind(owner).run();
+  const owner=await ownerKey(email);await env.DB.batch([
+   env.DB.prepare('UPDATE admin_credentials SET password_hash = ?, reset_token_hash = NULL, reset_expires = 0, attempts = 0, window_started = ? WHERE email = ?').bind(salt+':'+digest,now(),email),
+   env.DB.prepare('DELETE FROM admin_sessions WHERE owner_key = ?').bind(owner)
+  ]);
   const result=response({reset:true,message:'Password updated. Please sign in with your new password.'});result.headers.append('Set-Cookie',loginCookie(request,'',0));result.headers.append('Set-Cookie',cookie(request,'',0));return result;
  }
  if(path==='/api/admin-auth/logout'&&request.method==='POST'){
