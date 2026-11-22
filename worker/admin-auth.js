@@ -53,6 +53,12 @@ export function encodeBase32(bytes){let bits=0,value=0,result='';for(const byte 
 function decodeBase32(secret){let bits=0,value=0;const bytes=[];for(const letter of secret){const index=alphabet.indexOf(letter);if(index<0)throw new Error('Invalid authenticator key');value=(value<<5)|index;bits+=5;if(bits>=8){bytes.push((value>>>(bits-8))&255);bits-=8}}return new Uint8Array(bytes)}
 export async function totpCode(secret,counter){const bytes=new Uint8Array(8);new DataView(bytes.buffer).setBigUint64(0,BigInt(counter));const key=await crypto.subtle.importKey('raw',decodeBase32(secret),{name:'HMAC',hash:'SHA-1'},false,['sign']);const mac=new Uint8Array(await crypto.subtle.sign('HMAC',key,bytes));const offset=mac[mac.length-1]&15;const value=((mac[offset]&127)<<24)|(mac[offset+1]<<16)|(mac[offset+2]<<8)|mac[offset+3];return String(value%1000000).padStart(6,'0')}
 async function crypt(env,owner,value,decrypt=false){const key=await crypto.subtle.importKey('raw',unhex(env.ADMIN_MFA_KEY),{name:'AES-GCM'},false,[decrypt?'decrypt':'encrypt']);if(decrypt){const[iv,data]=value.split('.');return new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:unhex(iv),additionalData:encoder.encode(owner)},key,unhex(data)))}const iv=crypto.getRandomValues(new Uint8Array(12));const encrypted=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:encoder.encode(owner)},key,encoder.encode(value));return hex(iv)+'.'+hex(new Uint8Array(encrypted))}
+async function sendLoginOtp(env,email,code){
+ requireThat(env.RESEND_API_KEY&&env.MAIL_FROM,'Login verification email is not configured.',503);
+ const html='<div style="font-family:Arial,sans-serif;line-height:1.6;color:#252920"><h2>Aanch The Fire admin verification</h2><p>Your sign-in verification code is:</p><p style="font-size:30px;font-weight:700;letter-spacing:8px">'+code+'</p><p>This code expires in 5 minutes. Do not share it with anyone.</p></div>';
+ const sent=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({from:env.MAIL_FROM,to:[email],subject:'Your Aanch The Fire admin login code',html})});
+ if(!sent.ok){const detail=await sent.text();console.error('Resend login OTP failed:',sent.status,detail.slice(0,300));throw new AuthError('Could not send login verification email. Check Resend configuration.',503)}
+}
 async function sendResetEmail(env,email,token){
  requireThat(env.RESEND_API_KEY&&env.MAIL_FROM,'Password recovery email is not configured.',503);
  const link=new URL('/',env.APP_URL);link.hash='/admin/login?resetToken='+encodeURIComponent(token)+'&email='+encodeURIComponent(email);
@@ -76,12 +82,32 @@ export async function adminAuthRoute(request,env){
   const password=typeof body.password==='string'?body.password:'';const actual=await passwordHash(password.slice(0,200),salt);
   let diff=actual.length^expected.length;for(let i=0;i<actual.length;i++)diff|=actual.charCodeAt(i)^expected.charCodeAt(i);
   requireThat(row&&password.length>0&&password.length<=200&&diff===0,'Invalid email or password.',401);
-  await env.DB.prepare('UPDATE admin_credentials SET attempts = 0, window_started = ? WHERE email = ?').bind(time,email).run();
-  const expiry=String(time+sessionSeconds(env)),nonce=hex(crypto.getRandomValues(new Uint8Array(16))),encoded=btoa(email).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  const code=String(crypto.getRandomValues(new Uint32Array(1))[0]%1000000).padStart(6,'0');
+  await env.DB.prepare('UPDATE admin_credentials SET attempts = 0, window_started = ?, reset_token_hash = ?, reset_expires = ? WHERE email = ?').bind(time,await sha('login:'+email+':'+code),time+300,email).run();
+  await sendLoginOtp(env,email,code);
+  return response({emailOtpRequired:true,email,expiresIn:300,resendAfter:60,message:'A 6-digit sign-in code has been sent to your admin email.'});
+ }
+ if(path==='/api/admin-auth/resend-login-otp'&&request.method==='POST'){
+  const body=await request.json().catch(()=>({}));const email=String(body.email||'').trim().toLowerCase();
+  const row=await env.DB.prepare('SELECT email,reset_expires,window_started FROM admin_credentials WHERE email = ?').bind(email).first();
+  requireThat(row,'Sign in again to request a new code.',400);
+  requireThat(now()-row.window_started>=60,'Please wait before requesting another code.',429);
+  const code=String(crypto.getRandomValues(new Uint32Array(1))[0]%1000000).padStart(6,'0');
+  await env.DB.prepare('UPDATE admin_credentials SET reset_token_hash = ?, reset_expires = ?, window_started = ? WHERE email = ?').bind(await sha('login:'+email+':'+code),now()+300,now(),email).run();
+  await sendLoginOtp(env,email,code);
+  return response({sent:true,expiresIn:300,resendAfter:60,message:'A new sign-in code has been sent.'});
+ }
+ if(path==='/api/admin-auth/verify-login-otp'&&request.method==='POST'){
+  const body=await request.json().catch(()=>({}));const email=String(body.email||'').trim().toLowerCase(),code=String(body.code||'');
+  requireThat(/^\\d{6}$/.test(code),'Enter the 6-digit email code.');
+  const row=await env.DB.prepare('SELECT email,reset_token_hash,reset_expires FROM admin_credentials WHERE email = ?').bind(email).first();
+  requireThat(row&&row.reset_expires>now()&&row.reset_token_hash&&await sha('login:'+email+':'+code)===row.reset_token_hash,'Email code is invalid or expired.',401);
+  await env.DB.prepare('UPDATE admin_credentials SET reset_token_hash = NULL, reset_expires = 0, attempts = 0 WHERE email = ?').bind(email).run();
+  const expiry=String(now()+sessionSeconds(env)),nonce=hex(crypto.getRandomValues(new Uint8Array(16))),encoded=btoa(email).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
   const value=encoded+'.'+expiry+'.'+nonce;const key=await crypto.subtle.importKey('raw',unhex(env.ADMIN_MFA_KEY),{name:'HMAC',hash:'SHA-256'},false,['sign']);
   const signature=hex(new Uint8Array(await crypto.subtle.sign('HMAC',key,encoder.encode(email+'|'+expiry+'.'+nonce))));
   const token=value+'.'+signature;
-  return response({loggedIn:true,loginToken:token},200,{'Set-Cookie':loginCookie(request,token,sessionSeconds(env))});
+  return response({loggedIn:true,loginToken:token,emailVerified:true},200,{'Set-Cookie':loginCookie(request,token,sessionSeconds(env))});
  }
  if(path==='/api/admin-auth/forgot-password'&&request.method==='POST'){
   const body=await request.json().catch(()=>({}));const email=String(body.email||'').trim().toLowerCase();
