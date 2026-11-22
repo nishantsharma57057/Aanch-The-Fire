@@ -45,7 +45,7 @@ export async function hasAdminSession(request,env){
  const email=await accountFor(request,env);if(!email||!encryptionReady(env)||!env.DB)return false;
  const token=cookieToken(request);if(!token)return false;
  const owner=await ownerKey(email);
- const row=await env.DB.prepare('SELECT s.token_hash FROM admin_sessions s JOIN admin_mfa m ON m.owner_key = s.owner_key WHERE s.token_hash = ? AND s.owner_key = ? AND s.expires_at > ? AND m.enabled = 1').bind(await sha(token),owner,now()).first();
+ const row=await env.DB.prepare('SELECT s.token_hash FROM admin_sessions s WHERE s.token_hash = ? AND s.owner_key = ? AND s.expires_at > ?').bind(await sha(token),owner,now()).first();
  return Boolean(row);
 }
 export async function adminSessionState(request,env){const email=await accountFor(request,env);return {ownerAuthorized:Boolean(email),admin:email?await hasAdminSession(request,env):false,signedIn:false,adminEmail:email||null}}
@@ -99,19 +99,25 @@ export async function adminAuthRoute(request,env){
  }
  if(path==='/api/admin-auth/verify-login-otp'&&request.method==='POST'){
   const body=await request.json().catch(()=>({}));const email=String(body.email||'').trim().toLowerCase(),code=String(body.code||'');
-  requireThat(/^\\d{6}$/.test(code),'Enter the 6-digit email code.');
+  requireThat(/^\d{6}$/.test(code),'Enter the 6-digit email code.');
   const row=await env.DB.prepare('SELECT email,reset_token_hash,reset_expires,attempts,window_started FROM admin_credentials WHERE email = ?').bind(email).first();
   requireThat(row&&row.reset_expires>now()&&row.reset_token_hash,'Email code is invalid or expired.',401);
   if(row.window_started<=now()-900)await env.DB.prepare('UPDATE admin_credentials SET attempts = 0, window_started = ? WHERE email = ?').bind(now(),email).run();
   const reserved=await env.DB.prepare('UPDATE admin_credentials SET attempts = attempts + 1 WHERE email = ? AND attempts < 5').bind(email).run();
   requireThat(reserved.meta.changes===1,'Too many code attempts. Request a new code after 15 minutes.',429);
   requireThat(await sha('login:'+email+':'+code)===row.reset_token_hash,'Email code is invalid or expired.',401);
+  const time=now(),sessionToken=hex(crypto.getRandomValues(new Uint8Array(32))),owner=await ownerKey(email);
   await env.DB.prepare('UPDATE admin_credentials SET reset_token_hash = NULL, reset_expires = 0, attempts = 0 WHERE email = ?').bind(email).run();
-  const expiry=String(now()+sessionSeconds(env)),nonce=hex(crypto.getRandomValues(new Uint8Array(16))),encoded=btoa(email).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
+  await env.DB.prepare('DELETE FROM admin_sessions WHERE expires_at <= ?').bind(time).run();
+  await env.DB.prepare('INSERT INTO admin_sessions (token_hash,owner_key,expires_at) VALUES (?,?,?)').bind(await sha(sessionToken),owner,time+sessionSeconds(env)).run();
+  const expiry=String(time+sessionSeconds(env)),nonce=hex(crypto.getRandomValues(new Uint8Array(16))),encoded=btoa(email).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
   const value=encoded+'.'+expiry+'.'+nonce;const key=await crypto.subtle.importKey('raw',unhex(env.ADMIN_MFA_KEY),{name:'HMAC',hash:'SHA-256'},false,['sign']);
   const signature=hex(new Uint8Array(await crypto.subtle.sign('HMAC',key,encoder.encode(email+'|'+expiry+'.'+nonce))));
   const token=value+'.'+signature;
-  return response({loggedIn:true,loginToken:token,emailVerified:true},200,{'Set-Cookie':loginCookie(request,token,sessionSeconds(env))});
+  const result=response({loggedIn:true,emailVerified:true,verified:true});
+  result.headers.append('Set-Cookie',loginCookie(request,token,sessionSeconds(env)));
+  result.headers.append('Set-Cookie',cookie(request,sessionToken,sessionSeconds(env)));
+  return result;
  }
  if(path==='/api/admin-auth/forgot-password'&&request.method==='POST'){
   const body=await request.json().catch(()=>({}));const email=String(body.email||'').trim().toLowerCase();
