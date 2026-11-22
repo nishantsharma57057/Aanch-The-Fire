@@ -100,8 +100,12 @@ export async function adminAuthRoute(request,env){
  if(path==='/api/admin-auth/verify-login-otp'&&request.method==='POST'){
   const body=await request.json().catch(()=>({}));const email=String(body.email||'').trim().toLowerCase(),code=String(body.code||'');
   requireThat(/^\\d{6}$/.test(code),'Enter the 6-digit email code.');
-  const row=await env.DB.prepare('SELECT email,reset_token_hash,reset_expires FROM admin_credentials WHERE email = ?').bind(email).first();
-  requireThat(row&&row.reset_expires>now()&&row.reset_token_hash&&await sha('login:'+email+':'+code)===row.reset_token_hash,'Email code is invalid or expired.',401);
+  const row=await env.DB.prepare('SELECT email,reset_token_hash,reset_expires,attempts,window_started FROM admin_credentials WHERE email = ?').bind(email).first();
+  requireThat(row&&row.reset_expires>now()&&row.reset_token_hash,'Email code is invalid or expired.',401);
+  if(row.window_started<=now()-900)await env.DB.prepare('UPDATE admin_credentials SET attempts = 0, window_started = ? WHERE email = ?').bind(now(),email).run();
+  const reserved=await env.DB.prepare('UPDATE admin_credentials SET attempts = attempts + 1 WHERE email = ? AND attempts < 5').bind(email).run();
+  requireThat(reserved.meta.changes===1,'Too many code attempts. Request a new code after 15 minutes.',429);
+  requireThat(await sha('login:'+email+':'+code)===row.reset_token_hash,'Email code is invalid or expired.',401);
   await env.DB.prepare('UPDATE admin_credentials SET reset_token_hash = NULL, reset_expires = 0, attempts = 0 WHERE email = ?').bind(email).run();
   const expiry=String(now()+sessionSeconds(env)),nonce=hex(crypto.getRandomValues(new Uint8Array(16))),encoded=btoa(email).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
   const value=encoded+'.'+expiry+'.'+nonce;const key=await crypto.subtle.importKey('raw',unhex(env.ADMIN_MFA_KEY),{name:'HMAC',hash:'SHA-256'},false,['sign']);
