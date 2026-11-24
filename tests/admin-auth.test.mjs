@@ -52,3 +52,27 @@ test('two configured admin accounts have separate MFA and can reset passwords th
   const newLogin=await send('/admin-auth/login',{username:'nishantsharma59059@gmail.com',password:'New-secure-password-789!'});assert.equal(newLogin.status,200);
  }finally{globalThis.fetch=originalFetch;DB.close()}
 });
+
+
+test('email OTP verification creates the MFA parent row before issuing a new admin session',async()=>{
+ const DB=connectDB(),originalFetch=globalThis.fetch;
+ try{
+  const salt='44'.repeat(16),password='Email-OTP-test-password-123!';
+  const env={DB,ADMIN_MFA_KEY:'55'.repeat(32),APP_URL:'https://aanch.test',RESEND_API_KEY:'re_test_only',MAIL_FROM:'Aanch The Fire <no-reply@aanchthefire.com>',ADMIN_ACCOUNTS:JSON.stringify([
+   {email:'nishantsharma59059@gmail.com',passwordHash:salt+':'+await passwordHash(password,salt)},
+   {email:'aanchthefire@gmail.com',passwordHash:'66'.repeat(16)+':'+'77'.repeat(32)}
+  ])};
+  let otpEmail='';
+  globalThis.fetch=async(_url,options)=>{otpEmail=JSON.parse(options.body).html;return new Response(JSON.stringify({id:'test-email'}),{status:200})};
+  let cookies='aanch_session='+'a'.repeat(64);
+  const send=async(path,body)=>{const response=await api(new Request('https://aanch.test/api'+path,{method:body===undefined?'GET':'POST',headers:{cookie:cookies,'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)}),env);return{status:response.status,data:await response.json(),headers:response.headers}};
+  const login=await send('/admin-auth/login',{username:'nishantsharma59059@gmail.com',password});
+  assert.equal(login.status,200);assert.equal(login.data.emailOtpRequired,true);
+  const code=otpEmail.match(/letter-spacing:8px[^>]*>(\d{6})</)?.[1];assert.match(code,/^\d{6}$/);
+  const verified=await send('/admin-auth/verify-login-otp',{email:'nishantsharma59059@gmail.com',code});
+  assert.equal(verified.status,200);assert.equal(verified.data.emailVerified,true);
+  assert.ok(await DB.prepare('SELECT owner_key FROM admin_mfa').first());
+  cookies+='; '+verified.headers.getSetCookie().join('; ');
+  const session=await send('/session');assert.equal(session.status,200);assert.equal(session.data.ownerAuthorized,true);assert.equal(session.data.admin,true);
+ }finally{globalThis.fetch=originalFetch;DB.close()}
+});
