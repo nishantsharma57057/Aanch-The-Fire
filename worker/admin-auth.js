@@ -107,6 +107,9 @@ export async function adminAuthRoute(request,env){
   requireThat(reserved.meta.changes===1,'Too many code attempts. Request a new code after 15 minutes.',429);
   requireThat(await sha('login:'+email+':'+code)===row.reset_token_hash,'Email code is invalid or expired.',401);
   const time=now(),sessionToken=hex(crypto.getRandomValues(new Uint8Array(32))),owner=await ownerKey(email);
+  // admin_sessions has a foreign key to admin_mfa. A newly added admin has no
+  // MFA row yet, so create the per-admin record before issuing the email-OTP session.
+  await env.DB.prepare('INSERT OR IGNORE INTO admin_mfa (owner_key) VALUES (?)').bind(owner).run();
   await env.DB.prepare('UPDATE admin_credentials SET reset_token_hash = NULL, reset_expires = 0, attempts = 0 WHERE email = ?').bind(email).run();
   await env.DB.prepare('DELETE FROM admin_sessions WHERE expires_at <= ?').bind(time).run();
   await env.DB.prepare('INSERT INTO admin_sessions (token_hash,owner_key,expires_at) VALUES (?,?,?)').bind(await sha(sessionToken),owner,time+sessionSeconds(env)).run();
