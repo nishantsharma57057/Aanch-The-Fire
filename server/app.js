@@ -1,5 +1,6 @@
 import express from 'express';
-import {resolve} from 'node:path';
+import {existsSync} from 'node:fs';
+import {extname, resolve} from 'node:path';
 import {api} from '../worker/api.js';
 
 export function createApp(env, {staticDir = resolve('dist/client')} = {}) {
@@ -46,7 +47,20 @@ export function createApp(env, {staticDir = resolve('dist/client')} = {}) {
   app.use(express.static(staticDir, {dotfiles: 'deny', index: 'index.html', setHeaders(res, file) {
     res.setHeader('Cache-Control', file.includes('/assets/') ? 'public, max-age=31536000, immutable' : 'public, max-age=60');
   }}));
-  // This app uses #/ routes; arbitrary source paths must never fall back to source files.
+
+  // Serve the Vite SPA entry for browser routes, while preserving 404s for
+  // missing assets, API endpoints, and non-HTML requests.
+  const indexFile = resolve(staticDir, 'index.html');
+  app.use((req, res, next) => {
+    if (!['GET', 'HEAD'].includes(req.method) || req.path.startsWith('/api/') ||
+        req.path === '/api' || req.path.startsWith('/assets/') || extname(req.path) ||
+        !req.accepts('html')) return next();
+    if (!existsSync(indexFile)) {
+      return res.status(503).send('Frontend build is missing. Run npm run build and redeploy.');
+    }
+    res.sendFile(indexFile);
+  });
+
   app.use((_req, res) => res.status(404).send('Not found'));
   app.use((error, _req, res, _next) => {
     const status = error.type === 'entity.too.large' ? 413 : 400;
