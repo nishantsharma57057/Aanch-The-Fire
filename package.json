@@ -11,6 +11,7 @@
     "db:generate": "drizzle-kit generate",
     "build:sites": "vite build && node scripts/build-worker.mjs",
     "start": "node server.js",
+    "postinstall": "npm run build",
     "credentials": "node scripts/create-admin.mjs",
     "test:mysql": "MYSQL_TEST=1 node --test tests/api.test.mjs",
     "admin:accounts": "node scripts/create-admin-accounts.mjs"
