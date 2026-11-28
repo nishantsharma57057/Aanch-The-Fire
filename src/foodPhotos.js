@@ -42,23 +42,23 @@ const photoGroups = [
   { id: 'dhokla', label: 'Dhokla', match: /\bdhokla\b/, src: photos.dhokla },
   { id: 'poha-upma', label: 'Poha & Upma', match: /\bpoha\b|\bupma\b|\bsprouts\b/, src: photos.poha },
 
+  { id: 'pizza', label: 'Pizza varieties', match: /\bpizza\b/, src: photos.pizza },
+  { id: 'pasta', label: 'Pasta varieties', match: /\bpasta\b/, src: localPhotos.snacks },
   { id: 'paneer-tikka-chaap', label: 'Paneer Tikka & Chaap', match: /paneer tikka|chaap|paneer 65|shashlik/, src: photos.paneerTikka },
   { id: 'sizzlers', label: 'Sizzlers', match: /\bsizzler/, src: localPhotos.feast },
 
   { id: 'noodles-rice', label: 'Chinese Noodles & Rice', match: /noodle|fried rice/, src: photos.noodles },
   { id: 'indo-chinese-starters', label: 'Indo-Chinese Starters', match: /manchurian|chilli paneer|chilli potato|spring roll|chinese bhel|crispy corn|chilli mushroom|peanut masala/, src: photos.manchurian },
-  { id: 'pizza', label: 'Pizza varieties', match: /\bpizza\b/, src: photos.pizza },
-  { id: 'pasta', label: 'Pasta varieties', match: /\bpasta\b/, src: localPhotos.snacks },
   { id: 'fries', label: 'Fries', match: /\bfries\b/, src: photos.fries },
   { id: 'soups', label: 'Soups', match: /\bsoup\b/, src: photos.soup },
   { id: 'sandwiches', label: 'Sandwich varieties', match: /sandwich|bread butter/, src: photos.sandwich },
 
-  { id: 'paneer-curries', label: 'Paneer Curries', match: /paneer|handi paneer/, src: localPhotos.paneer },
+  { id: 'raita-curd-sides', label: 'Raita, Curd & Sides', match: /combo raita|raita|curd|papad|salad/, src: localPhotos.feast },
+  { id: 'breads-rice-thali', label: 'Breads, Rice & Thalis', match: /thali|combo|pav bhaji|chhole bhature|extra pav|extra bhature|roti|naan|paratha|rice|pulao|biryani/, src: photos.thali },
+
   { id: 'dal-curries', label: 'Dal Varieties', match: /\bdal\b/, src: localPhotos.paneer },
   { id: 'vegetable-curries', label: 'Vegetable Curries', match: /kaju curry|malai kofta|chana masala|dum aloo|mix veg|matar|navratan|mushroom|soya chaap gravy|sev bhaji|aloo jeera|aloo masala/, src: localPhotos.paneer },
-
-  { id: 'breads-rice-thali', label: 'Breads, Rice & Thalis', match: /thali|combo|pav bhaji|chhole bhature|extra pav|extra bhature|roti|naan|paratha|rice|pulao|biryani/, src: photos.thali },
-  { id: 'raita-curd-sides', label: 'Raita, Curd & Sides', match: /raita|curd|papad|salad/, src: localPhotos.feast },
+  { id: 'paneer-curries', label: 'Paneer Curries', match: /paneer|handi paneer/, src: localPhotos.paneer },
 
   { id: 'tea', label: 'Tea', match: /\btea\b|\bchai\b/, src: photos.chai },
   { id: 'coffee', label: 'Coffee', match: /\bcoffee\b/, src: photos.shake },
@@ -66,8 +66,8 @@ const photoGroups = [
   { id: 'shakes', label: 'Shake varieties', match: /shake/, src: photos.shake },
   { id: 'cold-drinks', label: 'Cold Drinks & Water', match: /soft drink|mineral water/, src: photos.lassi },
 
-  { id: 'ice-cream', label: 'Ice Cream & Sundaes', match: /ice cream|sundae/, src: photos.iceCream },
-  { id: 'gulab-jamun', label: 'Gulab Jamun', match: /gulab jamun/, src: photos.gulabJamun }
+  { id: 'gulab-jamun', label: 'Gulab Jamun', match: /gulab jamun/, src: photos.gulabJamun },
+  { id: 'ice-cream', label: 'Ice Cream & Sundaes', match: /ice cream|sundae/, src: photos.iceCream }
 ];
 
 export function foodPhotoGroup(item) {
