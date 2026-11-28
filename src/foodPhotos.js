@@ -1,4 +1,7 @@
-// Dish-specific illustrative photos. Wikimedia Commons files are credited in FOOD-IMAGE-CREDITS.md.
+// Related dishes are intentionally assigned to shared photo groups.
+// This keeps Plain Dosa, Masala Dosa, Paneer Dosa, etc. visually consistent.
+// Individual menu items and their prices remain separate in menu.js.
+
 const commonsPhoto = filename =>
   'https://commons.wikimedia.org/wiki/Special:FilePath/' + encodeURIComponent(filename) + '?width=720';
 
@@ -23,55 +26,85 @@ const photos = {
   gulabJamun: commonsPhoto('Gulab Jamun Indian Dessert.jpg')
 };
 
-const localFallback = {
-  indian: '/images/paneer.webp',
+// Existing Aanch photos are used as reliable fallbacks for groups without
+// a dedicated representative image.
+const localPhotos = {
+  paneer: '/images/paneer.webp',
   snacks: '/images/snacks.webp',
-  meal: '/images/feast.webp'
+  feast: '/images/feast.webp'
 };
 
-export function foodPhoto(item) {
+// Ordered from specific to broad so a dish is matched to the best group.
+const photoGroups = [
+  { id: 'dosa', label: 'Dosa varieties', match: /\bdosa\b/, src: photos.dosa },
+  { id: 'uttapam', label: 'Uttapam varieties', match: /\buttapam\b/, src: photos.uttapam },
+  { id: 'idli-vada', label: 'Idli & Vada', match: /\bidli\b|\bvada\b/, src: photos.idli },
+  { id: 'dhokla', label: 'Dhokla', match: /\bdhokla\b/, src: photos.dhokla },
+  { id: 'poha-upma', label: 'Poha & Upma', match: /\bpoha\b|\bupma\b|\bsprouts\b/, src: photos.poha },
+
+  { id: 'paneer-tikka-chaap', label: 'Paneer Tikka & Chaap', match: /paneer tikka|chaap|paneer 65|shashlik/, src: photos.paneerTikka },
+  { id: 'sizzlers', label: 'Sizzlers', match: /\bsizzler/, src: localPhotos.feast },
+
+  { id: 'noodles-rice', label: 'Chinese Noodles & Rice', match: /noodle|fried rice/, src: photos.noodles },
+  { id: 'indo-chinese-starters', label: 'Indo-Chinese Starters', match: /manchurian|chilli paneer|chilli potato|spring roll|chinese bhel|crispy corn|chilli mushroom|peanut masala/, src: photos.manchurian },
+  { id: 'pizza', label: 'Pizza varieties', match: /\bpizza\b/, src: photos.pizza },
+  { id: 'pasta', label: 'Pasta varieties', match: /\bpasta\b/, src: localPhotos.snacks },
+  { id: 'fries', label: 'Fries', match: /\bfries\b/, src: photos.fries },
+  { id: 'soups', label: 'Soups', match: /\bsoup\b/, src: photos.soup },
+  { id: 'sandwiches', label: 'Sandwich varieties', match: /sandwich|bread butter/, src: photos.sandwich },
+
+  { id: 'paneer-curries', label: 'Paneer Curries', match: /paneer|handi paneer/, src: localPhotos.paneer },
+  { id: 'dal-curries', label: 'Dal Varieties', match: /\bdal\b/, src: localPhotos.paneer },
+  { id: 'vegetable-curries', label: 'Vegetable Curries', match: /kaju curry|malai kofta|chana masala|dum aloo|mix veg|matar|navratan|mushroom|soya chaap gravy|sev bhaji|aloo jeera|aloo masala/, src: localPhotos.paneer },
+
+  { id: 'breads-rice-thali', label: 'Breads, Rice & Thalis', match: /thali|combo|pav bhaji|chhole bhature|extra pav|extra bhature|roti|naan|paratha|rice|pulao|biryani/, src: photos.thali },
+  { id: 'raita-curd-sides', label: 'Raita, Curd & Sides', match: /raita|curd|papad|salad/, src: localPhotos.feast },
+
+  { id: 'tea', label: 'Tea', match: /\btea\b|\bchai\b/, src: photos.chai },
+  { id: 'coffee', label: 'Coffee', match: /\bcoffee\b/, src: photos.shake },
+  { id: 'lassi-coolers', label: 'Lassi & Coolers', match: /lassi|chhaach|lime soda|iced tea/, src: photos.lassi },
+  { id: 'shakes', label: 'Shake varieties', match: /shake/, src: photos.shake },
+  { id: 'cold-drinks', label: 'Cold Drinks & Water', match: /soft drink|mineral water/, src: photos.lassi },
+
+  { id: 'ice-cream', label: 'Ice Cream & Sundaes', match: /ice cream|sundae/, src: photos.iceCream },
+  { id: 'gulab-jamun', label: 'Gulab Jamun', match: /gulab jamun/, src: photos.gulabJamun }
+];
+
+export function foodPhotoGroup(item) {
   const name = String(item?.name || '').toLowerCase();
   const category = String(item?.category || '').toLowerCase();
 
-  if (/dosa/.test(name)) return photos.dosa;
-  if (/uttapam/.test(name)) return photos.uttapam;
-  if (/idli|vada/.test(name)) return photos.idli;
-  if (/dhokla/.test(name)) return photos.dhokla;
-  if (/poha|upma|sprouts/.test(name)) return photos.poha;
+  const matched = photoGroups.find(group => group.match.test(name));
+  if (matched) return { id: matched.id, label: matched.label, src: matched.src };
 
-  if (/noodle|fried rice/.test(name)) return photos.noodles;
-  if (/manchurian|chilli paneer|chilli potato|spring roll|chinese bhel|crispy corn/.test(name)) return photos.manchurian;
-  if (/pizza/.test(name)) return photos.pizza;
-  if (/fries/.test(name)) return photos.fries;
-  if (/soup/.test(name)) return photos.soup;
-  if (/sandwich|bread butter/.test(name)) return photos.sandwich;
+  if (/beverages|shakes/.test(category)) {
+    return { id: 'beverages', label: 'Beverages', src: photos.lassi };
+  }
+  if (/chinese/.test(category)) {
+    return { id: 'indo-chinese', label: 'Indo-Chinese', src: photos.manchurian };
+  }
+  if (/tandoori/.test(category)) {
+    return { id: 'tandoori', label: 'Tandoori Starters', src: photos.paneerTikka };
+  }
+  if (/north indian|handi/.test(category)) {
+    return { id: 'indian-curries', label: 'Indian Curries', src: localPhotos.paneer };
+  }
+  return { id: 'aanch-favourites', label: 'Aanch Favourites', src: localPhotos.feast };
+}
 
-  if (/paneer tikka|chaap/.test(name) || /tandoori|sizzler/.test(category)) return photos.paneerTikka;
-  if (/gulab jamun/.test(name)) return photos.gulabJamun;
-  if (/ice cream|sundae/.test(name)) return photos.iceCream;
-
-  if (/tea/.test(name)) return photos.chai;
-  if (/lassi|chhaach|lime soda/.test(name)) return photos.lassi;
-  if (/coffee|shake/.test(name)) return photos.shake;
-
-  if (/paneer|kaju|dal|chana|mushroom|dum aloo|mix veg|matar|navratan|soya|sev bhaji/.test(name)
-    || /north indian|handi/.test(category)) return localFallback.indian;
-
-  if (/thali|combo|pav bhaji|chhole bhature|roti|naan|paratha|rice|pulao|raita|salad|papad|curd/.test(name)
-    || /breads|thalis|meals/.test(category)) return photos.thali;
-
-  if (/beverages|shakes/.test(category)) return photos.lassi;
-  if (/pizza|continental|chinese|sandwich|soup/.test(category)) return localFallback.snacks;
-  return localFallback.meal;
+export function foodPhoto(item) {
+  return foodPhotoGroup(item).src;
 }
 
 export function foodPhotoFallback(item) {
   const category = String(item?.category || '').toLowerCase();
-  if (/north indian|handi|tandoori/.test(category)) return localFallback.indian;
-  if (/chinese|continental|sandwich|soup/.test(category)) return localFallback.snacks;
-  return localFallback.meal;
+  if (/north indian|handi|tandoori/.test(category)) return localPhotos.paneer;
+  if (/chinese|continental|sandwich|soup/.test(category)) return localPhotos.snacks;
+  return localPhotos.feast;
 }
 
+// Keep Pinterest searches specific to each item, even when photos are shared
+// by a larger visual group.
 export function pinterestSearchUrl(item) {
   const dishName = String(item?.name || 'Indian food').trim() || 'Indian food';
   return 'https://in.pinterest.com/search/pins/?q=' + encodeURIComponent(dishName) + '&rs=typed';
