@@ -41,3 +41,20 @@ select:not([multiple]){appearance:none;-webkit-appearance:none;min-height:50px;l
 
 .policy-page{max-width:1040px;margin:0 auto;padding-top:70px;padding-bottom:100px}.policy-page .commerce-heading{max-width:820px}.policy-effective{font-size:13px!important;margin-top:18px!important}.policy-content{padding:clamp(22px,5vw,54px);line-height:1.75}.policy-content h2{font-family:inherit;font-size:clamp(18px,2vw,22px);margin:30px 0 10px;color:var(--ink,#25221f)}.policy-content h2:first-child{margin-top:0}.policy-content p,.policy-content li{font-size:15px;line-height:1.8;color:var(--muted,#69645e)}.policy-content ul{padding-left:22px}.policy-content a,.policy-contact a{color:var(--accent,#b7772c);text-decoration:underline;text-underline-offset:3px}.policy-contact{margin-top:24px;font-size:14px}
 @media(max-width:650px){.policy-page{padding-top:38px;padding-bottom:80px}.policy-content{padding:22px 18px}.policy-content p,.policy-content li{font-size:14px}}
+
+
+/* Editorial headings for the shared food-photo groups on the online menu. */
+.online-dish-groups{display:grid;gap:27px;margin-top:8px}
+.online-dish-group{min-width:0}
+.online-dish-group-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding:9px 0 13px;border-bottom:1px solid var(--line);margin-bottom:0}
+.online-dish-group-heading>div{min-width:0}
+.online-group-kicker{display:block;margin-bottom:3px;color:var(--red);font:600 9px/1.4 var(--sans);letter-spacing:1.6px}
+.online-dish-group-heading h3{margin:0;color:var(--ink);font:500 clamp(23px,2vw,29px)/1.12 var(--serif);letter-spacing:-.35px}
+.online-group-count{flex-shrink:0;padding:5px 10px;border:1px solid var(--line);border-radius:30px;color:var(--muted);font:500 10px/1.2 var(--sans);white-space:nowrap}
+.online-dish-group .online-dishes{margin-top:0}
+@media(max-width:600px){
+  .online-dish-groups{gap:21px}
+  .online-dish-group-heading{padding:8px 0 11px}
+  .online-dish-group-heading h3{font-size:24px}
+  .online-group-count{font-size:9px;padding:5px 8px}
+}
